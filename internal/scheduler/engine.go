@@ -19,14 +19,15 @@ import (
 type MinHeapScheduler struct {
 	mu       sync.Mutex
 	heap     entryHeap
-	byID     map[string]*entry // fast lookup for remove/update
-	notify   chan struct{}      // signals the loop that the heap changed
+	byID     map[string]*entry
+	notify   chan struct{}
 	stopCh   chan struct{}
 	executor executor.JobExecutor
 	runRepo  repository.RunRepository
+	jobRepo  repository.JobRepository
 }
 
-func NewMinHeapScheduler(exec executor.JobExecutor, runRepo repository.RunRepository) *MinHeapScheduler {
+func NewMinHeapScheduler(exec executor.JobExecutor, runRepo repository.RunRepository, jobRepo repository.JobRepository) *MinHeapScheduler {
 	return &MinHeapScheduler{
 		heap:     newEntryHeap(),
 		byID:     make(map[string]*entry),
@@ -34,6 +35,7 @@ func NewMinHeapScheduler(exec executor.JobExecutor, runRepo repository.RunReposi
 		stopCh:   make(chan struct{}),
 		executor: exec,
 		runRepo:  runRepo,
+		jobRepo:  jobRepo,
 	}
 }
 
@@ -104,10 +106,11 @@ func (s *MinHeapScheduler) run() {
 			e := heap.Pop(&s.heap).(*entry)
 			delete(s.byID, e.job.ID)
 
-			go s.fire(e.job)
+			// compute next before firing so fire() can persist it
+			nextRunAt := e.schedule.Next(now)
+			go s.fire(e.job, nextRunAt)
 
-			// re-schedule: compute next and push back
-			e.next = e.schedule.Next(now)
+			e.next = nextRunAt
 			heap.Push(&s.heap, e)
 			s.byID[e.job.ID] = e
 		}
@@ -132,8 +135,9 @@ func (s *MinHeapScheduler) run() {
 	}
 }
 
-// fire executes one job run concurrently and records it in the run history.
-func (s *MinHeapScheduler) fire(job domain.Job) {
+// fire executes one job run concurrently, records it in run history,
+// and persists the next scheduled run time back to MySQL.
+func (s *MinHeapScheduler) fire(job domain.Job, nextRunAt time.Time) {
 	ctx := context.Background()
 	runID := uuid.New().String()
 	startedAt := time.Now().UTC()
@@ -157,6 +161,7 @@ func (s *MinHeapScheduler) fire(job domain.Job) {
 	responseCode := result.ResponseCode
 
 	run.Status = result.Status
+	run.Attempt = result.Attempts
 	run.FinishedAt = &finishedAt
 	run.DurationMs = &durationMs
 	run.ResponseCode = &responseCode
@@ -166,6 +171,11 @@ func (s *MinHeapScheduler) fire(job domain.Job) {
 
 	if err := s.runRepo.UpdateStatus(ctx, run); err != nil {
 		log.Printf("scheduler: update run record %s: %v", runID, err)
+	}
+
+	// keep next_run_at in MySQL current so restart reconciliation is accurate
+	if err := s.jobRepo.UpdateNextRunAt(ctx, job.ID, nextRunAt); err != nil {
+		log.Printf("scheduler: update next_run_at for job %s: %v", job.ID, err)
 	}
 }
 

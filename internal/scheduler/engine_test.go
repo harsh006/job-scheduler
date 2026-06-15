@@ -56,6 +56,17 @@ func (r *fakeRunRepo) ListRecent(_ context.Context, _ int) ([]domain.Run, error)
 // Compile-time checks that fakes satisfy the interfaces.
 var _ executor.JobExecutor = (*fakeExecutor)(nil)
 
+// fakeJobRepo satisfies repository.JobRepository for scheduler tests.
+type fakeJobRepo struct{}
+
+func (r *fakeJobRepo) Create(_ context.Context, _ domain.Job) error                           { return nil }
+func (r *fakeJobRepo) GetByID(_ context.Context, _ string) (domain.Job, error)                { return domain.Job{}, nil }
+func (r *fakeJobRepo) Update(_ context.Context, _ domain.Job) error                           { return nil }
+func (r *fakeJobRepo) UpdateNextRunAt(_ context.Context, _ string, _ time.Time) error         { return nil }
+func (r *fakeJobRepo) Delete(_ context.Context, _ string) error                               { return nil }
+func (r *fakeJobRepo) ListActive(_ context.Context) ([]domain.Job, error)                     { return nil, nil }
+func (r *fakeJobRepo) List(_ context.Context) ([]domain.Job, error)                           { return nil, nil }
+
 func newTestJob(cronExpr string) domain.Job {
 	return domain.Job{
 		ID:             uuid.New().String(),
@@ -73,7 +84,7 @@ func TestAddJobFiresAtScheduledTime(t *testing.T) {
 	exec := &fakeExecutor{}
 	repo := &fakeRunRepo{}
 
-	sched := NewMinHeapScheduler(exec, repo)
+	sched := NewMinHeapScheduler(exec, repo, &fakeJobRepo{})
 	if err := sched.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -101,7 +112,7 @@ func TestRemoveJobPreventsExecution(t *testing.T) {
 	exec := &fakeExecutor{}
 	repo := &fakeRunRepo{}
 
-	sched := NewMinHeapScheduler(exec, repo)
+	sched := NewMinHeapScheduler(exec, repo, &fakeJobRepo{})
 	if err := sched.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -128,7 +139,7 @@ func TestConcurrentJobsFireIndependently(t *testing.T) {
 	exec := &fakeExecutor{}
 	repo := &fakeRunRepo{}
 
-	sched := NewMinHeapScheduler(exec, repo)
+	sched := NewMinHeapScheduler(exec, repo, &fakeJobRepo{})
 	if err := sched.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -153,7 +164,7 @@ func TestUpdateJobReschedulesCorrectly(t *testing.T) {
 	exec := &fakeExecutor{}
 	repo := &fakeRunRepo{}
 
-	sched := NewMinHeapScheduler(exec, repo)
+	sched := NewMinHeapScheduler(exec, repo, &fakeJobRepo{})
 	if err := sched.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}

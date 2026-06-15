@@ -15,6 +15,7 @@ type JobRepository interface {
 	Create(ctx context.Context, job domain.Job) error
 	GetByID(ctx context.Context, id string) (domain.Job, error)
 	Update(ctx context.Context, job domain.Job) error
+	UpdateNextRunAt(ctx context.Context, jobID string, nextRunAt time.Time) error
 	Delete(ctx context.Context, id string) error
 	ListActive(ctx context.Context) ([]domain.Job, error)
 	List(ctx context.Context) ([]domain.Job, error)
@@ -82,6 +83,14 @@ func (r *MySQLJobRepository) Delete(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE jobs SET status=?, updated_at=? WHERE id=?`,
 		domain.JobStatusDeleted, time.Now().UTC(), id,
+	)
+	return err
+}
+
+func (r *MySQLJobRepository) UpdateNextRunAt(ctx context.Context, jobID string, nextRunAt time.Time) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE jobs SET next_run_at=?, updated_at=? WHERE id=?`,
+		nextRunAt.UTC(), time.Now().UTC(), jobID,
 	)
 	return err
 }
