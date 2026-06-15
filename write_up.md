@@ -16,10 +16,11 @@ The core product requirement was mine — a cron-style job scheduler with run hi
 - **`Authorization: Bearer`** instead of `X-API-Key` — I caught that the AI's first suggestion was non-standard and pushed back
 - **chi** as the HTTP framework
 - **Min-heap** as the scheduling approach — I didn't just accept the AI's recommendation (per-job goroutines); I asked what the industry standard actually was, and switched to Approach C after understanding it
+- **Plan** - After this I curated the fully executable plan, which AI could pick up and implement.
 
 **What I delegated to the AI:**
 
-Once the design decisions were locked, I let the AI handle implementation in full:
+Once I made the plan and the design decisions were locked, I let the AI handle implementation in full:
 - Class design, interface definitions, and package structure
 - All Go code — domain models, repositories, executor, scheduler engine, API handlers, middleware, `cmd/main.go`
 - Database schema and migrations
@@ -38,9 +39,6 @@ The AI suggested `X-API-Key` as a custom header. I pushed back — `Authorizatio
 
 **Scheduler approach:**
 The AI recommended Approach B (per-job goroutines) citing "clarity" and "maps 1:1 to the data model." I didn't take that at face value and asked what production schedulers actually do. The honest answer was Approach C (min-heap), which is how `robfig/cron` works internally, and how Celery beat, Quartz, and similar systems are built. I switched. The AI's first recommendation was optimising for explainability over correctness.
-
-**GitHub account:**
-The AI defaulted to the authenticated `harshRZP` account when I asked it to push to GitHub. I had to explicitly say I wanted `harsh006`. Small thing, but worth noting — the AI assumes context it doesn't have.
 
 **Scope of the session:**
 The AI would have kept asking clarifying questions. I cut it shorter than it wanted. Once I had enough signal on the design, I moved to implementation rather than answering every optional question about pagination limits and auth edge cases. The goal was a working, learning-grade system — not a production-hardened one.
