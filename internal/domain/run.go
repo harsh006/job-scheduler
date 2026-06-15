@@ -8,6 +8,7 @@ const (
 	RunStatusRunning   RunStatus = "running"
 	RunStatusSucceeded RunStatus = "succeeded"
 	RunStatusFailed    RunStatus = "failed"
+	RunStatusMissed    RunStatus = "missed"
 )
 
 type Run struct {
@@ -27,4 +28,5 @@ type RunResult struct {
 	ResponseCode int
 	ErrorMessage string
 	DurationMs   int64
+	Attempts     int
 }

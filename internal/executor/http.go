@@ -28,8 +28,10 @@ func (e *HTTPExecutor) Execute(ctx context.Context, job domain.Job) domain.RunRe
 
 	var lastErr error
 	var lastCode int
+	var attempts int
 
 	for attempt := 1; attempt <= job.MaxRetries; attempt++ {
+		attempts = attempt
 		code, err := e.doRequest(ctx, job)
 		lastCode = code
 		lastErr = err
@@ -39,6 +41,7 @@ func (e *HTTPExecutor) Execute(ctx context.Context, job domain.Job) domain.RunRe
 				Status:       domain.RunStatusSucceeded,
 				ResponseCode: code,
 				DurationMs:   time.Since(start).Milliseconds(),
+				Attempts:     attempts,
 			}
 		}
 
@@ -51,6 +54,7 @@ func (e *HTTPExecutor) Execute(ctx context.Context, job domain.Job) domain.RunRe
 					ResponseCode: lastCode,
 					ErrorMessage: "context cancelled during retry wait",
 					DurationMs:   time.Since(start).Milliseconds(),
+					Attempts:     attempts,
 				}
 			}
 		}
@@ -68,6 +72,7 @@ func (e *HTTPExecutor) Execute(ctx context.Context, job domain.Job) domain.RunRe
 		ResponseCode: lastCode,
 		ErrorMessage: errMsg,
 		DurationMs:   time.Since(start).Milliseconds(),
+		Attempts:     attempts,
 	}
 }
 
