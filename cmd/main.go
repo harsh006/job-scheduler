@@ -12,11 +12,13 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
 
 	"github.com/harshRZP/job-scheduler/internal/api"
 	"github.com/harshRZP/job-scheduler/internal/api/handler"
 	"github.com/harshRZP/job-scheduler/internal/api/middleware"
 	"github.com/harshRZP/job-scheduler/internal/config"
+	"github.com/harshRZP/job-scheduler/internal/domain"
 	"github.com/harshRZP/job-scheduler/internal/executor"
 	"github.com/harshRZP/job-scheduler/internal/repository"
 	"github.com/harshRZP/job-scheduler/internal/scheduler"
@@ -42,7 +44,7 @@ func main() {
 	exec := executor.NewHTTPExecutor(cfg.HTTPTimeoutSec)
 
 	// Scheduler
-	sched := scheduler.NewMinHeapScheduler(exec, runRepo)
+	sched := scheduler.NewMinHeapScheduler(exec, runRepo, jobRepo)
 	notifier := scheduler.NewInProcessNotifier(sched)
 
 	// Auth
@@ -52,10 +54,10 @@ func main() {
 	jobH := handler.NewJobHandler(jobRepo, notifier)
 	runH := handler.NewRunHandler(runRepo)
 
-	// Load active jobs into the scheduler before accepting traffic
+	// Reconcile active jobs: detect missed runs, update next_run_at, load into scheduler
 	ctx := context.Background()
-	if err := loadActiveJobs(ctx, jobRepo, sched); err != nil {
-		log.Fatalf("load active jobs: %v", err)
+	if err := reconcileOnStartup(ctx, jobRepo, runRepo, sched); err != nil {
+		log.Fatalf("reconcile on startup: %v", err)
 	}
 
 	if err := sched.Start(); err != nil {
@@ -115,16 +117,59 @@ func openDB(dsn string) (*sql.DB, error) {
 	return db, nil
 }
 
-func loadActiveJobs(ctx context.Context, jobRepo repository.JobRepository, sched scheduler.Scheduler) error {
+// reconcileOnStartup loads all active jobs, records missed runs for any that
+// were due while the process was down, resets next_run_at, and adds them to
+// the scheduler. This ensures no silent drops on restart.
+func reconcileOnStartup(
+	ctx context.Context,
+	jobRepo repository.JobRepository,
+	runRepo repository.RunRepository,
+	sched scheduler.Scheduler,
+) error {
 	jobs, err := jobRepo.ListActive(ctx)
 	if err != nil {
 		return fmt.Errorf("list active jobs: %w", err)
 	}
+
+	now := time.Now().UTC()
+	missed, loaded := 0, 0
+
 	for _, j := range jobs {
+		// If next_run_at is in the past, the process was down when this job
+		// was supposed to fire. Record a missed run and reset the schedule.
+		if j.NextRunAt.Before(now) {
+			startedAt := j.NextRunAt
+			run := domain.Run{
+				ID:        uuid.New().String(),
+				JobID:     j.ID,
+				Status:    domain.RunStatusMissed,
+				Attempt:   0,
+				StartedAt: startedAt,
+			}
+			if err := runRepo.Create(ctx, run); err != nil {
+				log.Printf("warn: could not record missed run for job %s: %v", j.ID, err)
+			}
+
+			// Advance next_run_at to the next natural trigger from now
+			sched2, err := scheduler.ParseSchedule(j.CronExpr)
+			if err != nil {
+				log.Printf("warn: invalid cron for job %s, skipping: %v", j.ID, err)
+				continue
+			}
+			j.NextRunAt = sched2.Next(now)
+			if err := jobRepo.UpdateNextRunAt(ctx, j.ID, j.NextRunAt); err != nil {
+				log.Printf("warn: update next_run_at for job %s: %v", j.ID, err)
+			}
+			missed++
+		}
+
 		if err := sched.AddJob(j); err != nil {
 			log.Printf("warn: could not schedule job %s (%s): %v", j.ID, j.Name, err)
+			continue
 		}
+		loaded++
 	}
-	log.Printf("loaded %d active jobs into scheduler", len(jobs))
+
+	log.Printf("startup reconciliation: %d jobs loaded, %d missed runs recorded", loaded, missed)
 	return nil
 }

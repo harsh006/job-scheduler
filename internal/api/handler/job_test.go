@@ -68,6 +68,14 @@ func (r *fakeJobRepo) List(_ context.Context) ([]domain.Job, error) {
 	return out, nil
 }
 
+func (r *fakeJobRepo) UpdateNextRunAt(_ context.Context, id string, nextRunAt time.Time) error {
+	if j, ok := r.jobs[id]; ok {
+		j.NextRunAt = nextRunAt
+		r.jobs[id] = j
+	}
+	return nil
+}
+
 type fakeNotifier struct{}
 
 func (n *fakeNotifier) NotifyCreated(_ domain.Job) error  { return nil }
