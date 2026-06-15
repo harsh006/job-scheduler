@@ -33,9 +33,9 @@ func (r *MySQLRunRepository) Create(ctx context.Context, run domain.Run) error {
 
 func (r *MySQLRunRepository) UpdateStatus(ctx context.Context, run domain.Run) error {
 	_, err := r.db.ExecContext(ctx, `
-		UPDATE runs SET status=?, finished_at=?, duration_ms=?, response_code=?, error_message=?
+		UPDATE runs SET status=?, attempt=?, finished_at=?, duration_ms=?, response_code=?, error_message=?
 		WHERE id=?`,
-		run.Status, run.FinishedAt, run.DurationMs, run.ResponseCode,
+		run.Status, run.Attempt, run.FinishedAt, run.DurationMs, run.ResponseCode,
 		run.ErrorMessage, run.ID,
 	)
 	return err
